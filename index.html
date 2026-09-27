@@ -1,0 +1,464 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proyector de Desgaste Oculto</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Configuración de Tailwind para colores personalizados (Opcional pero recomendado para "Premium") -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdfa',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                            900: '#134e4a',
+                        }
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.5s ease-out',
+                        'slide-up': 'slideUp 0.5s ease-out',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(10px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Import Map para ES Modules en el navegador -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "recharts": "https://esm.sh/recharts@2.12.0?deps=react@18.2.0,react-dom@18.2.0",
+            "lucide-react": "https://esm.sh/lucide-react@0.344.0?deps=react@18.2.0",
+            "clsx": "https://esm.sh/clsx@2.1.0",
+            "tailwind-merge": "https://esm.sh/tailwind-merge@2.2.1"
+        }
+    }
+    </script>
+
+    <!-- Babel para compilar JSX en el navegador -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-transparent antialiased p-4 sm:p-6 w-full h-auto">
+    
+    <!-- Contenedor Raíz de React -->
+    <div id="root" class="max-w-3xl mx-auto"></div>
+
+    <!-- Script Principal de la Aplicación -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+        } from 'recharts';
+        import { 
+            Activity, Brain, HeartPulse, ArrowRight, AlertTriangle, 
+            CheckCircle2, RotateCcw, ShieldAlert, Zap,
+            Wind, BrainCircuit, Heart, ListChecks
+        } from 'lucide-react';
+        import { clsx } from 'clsx';
+        import { twMerge } from 'tailwind-merge';
+
+        // Utilidad para clases Tailwind
+        function cn(...inputs) {
+            return twMerge(clsx(inputs));
+        }
+
+        // Base de datos de síntomas con sus "pesos" ocultos
+        const SYMPTOMS = [
+            { id: 's1', label: 'Insomnio o sueño poco reparador', category: 'Físico', weight: 15 },
+            { id: 's2', label: 'Tensión constante en cuello/mandíbula', category: 'Físico', weight: 10 },
+            { id: 's3', label: 'Problemas digestivos recurrentes', category: 'Físico', weight: 12 },
+            { id: 's4', label: 'Irritabilidad con seres queridos', category: 'Emocional', weight: 15 },
+            { id: 's5', label: 'Sensación de que el tiempo no alcanza', category: 'Mental', weight: 10 },
+            { id: 's6', label: 'Procrastinación por parálisis', category: 'Mental', weight: 12 },
+            { id: 's7', label: 'Dificultad para concentrarse', category: 'Mental', weight: 10 },
+            { id: 's8', label: 'Pensamientos de "y si pasa lo peor..."', category: 'Emocional', weight: 16 }
+        ];
+
+        function App() {
+            // Estados
+            const [step, setStep] = useState(1);
+            const [selectedIds, setSelectedIds] = useState([]);
+            const [isLoaded, setIsLoaded] = useState(false);
+
+            // Cargar de LocalStorage al iniciar
+            useEffect(() => {
+                const saved = localStorage.getItem('anxietyApp_symptoms');
+                if (saved) {
+                    try {
+                        setSelectedIds(JSON.parse(saved));
+                    } catch (e) {
+                        console.error('Error loading saved data');
+                    }
+                }
+                setIsLoaded(true);
+            }, []);
+
+            // Guardar en LocalStorage al cambiar
+            useEffect(() => {
+                if (isLoaded) {
+                    localStorage.setItem('anxietyApp_symptoms', JSON.stringify(selectedIds));
+                }
+            }, [selectedIds, isLoaded]);
+
+            // Lógica de Selección
+            const toggleSymptom = (id) => {
+                setSelectedIds(prev => 
+                    prev.includes(id) 
+                        ? prev.filter(i => i !== id)
+                        : [...prev, id]
+                );
+            };
+
+            // Cálculos
+            const currentRisk = useMemo(() => {
+                const totalWeight = selectedIds.reduce((sum, id) => {
+                    const symptom = SYMPTOMS.find(s => s.id === id);
+                    return sum + (symptom ? symptom.weight : 0);
+                }, 0);
+                // Cap a 100
+                return Math.min(totalWeight, 100);
+            }, [selectedIds]);
+
+            // Generar datos para el gráfico (El Proyector)
+            const chartData = useMemo(() => {
+                if (currentRisk === 0) return [];
+                
+                // Base risk es el punto de partida (Hoy)
+                const base = currentRisk;
+                
+                return [
+                    { 
+                        name: 'Hoy', 
+                        ignorar: base, 
+                        actuar: base 
+                    },
+                    { 
+                        name: 'Año 1', 
+                        // Ignorar sube 30% cada paso, Actuar baja 40%
+                        ignorar: Math.min(base * 1.3, 100), 
+                        actuar: Math.max(base * 0.6, 10) 
+                    },
+                    { 
+                        name: 'Año 3', 
+                        ignorar: Math.min(base * 1.7, 100), 
+                        actuar: Math.max(base * 0.3, 5) 
+                    },
+                    { 
+                        name: 'Año 5', 
+                        // En 5 años ignorado casi seguro llega a 100 (Burnout/Crisis)
+                        ignorar: Math.min(base * 2.2, 100), 
+                        actuar: Math.max(base * 0.15, 2) // Baseline saludable
+                    }
+                ];
+            }, [currentRisk]);
+
+            const dominantCategory = useMemo(() => {
+                if (selectedIds.length === 0) return 'Ninguno';
+                
+                const counts = { Físico: 0, Emocional: 0, Mental: 0 };
+                selectedIds.forEach(id => {
+                    const sym = SYMPTOMS.find(s => s.id === id);
+                    if (sym) counts[sym.category]++;
+                });
+
+                // Si hay mucha dispersión (2 o más categorías) o alta carga sintomática (>3) es Mixto
+                const activeCategories = Object.values(counts).filter(v => v > 0).length;
+                if ((activeCategories >= 2 && selectedIds.length >= 3) || selectedIds.length > 3) {
+                    return 'Mixto';
+                }
+
+                // De lo contrario, buscar la categoría con mayor puntuación
+                return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+            }, [selectedIds]);
+
+            const RECOVERY_PLANS = {
+                'Físico': {
+                    title: 'Protocolo de Reseteo Somático',
+                    icon: Wind,
+                    color: 'text-blue-600',
+                    bg: 'bg-blue-50',
+                    border: 'border-blue-200',
+                    desc: 'Tu cuerpo está absorbiendo todo el impacto. Necesitamos enviar señales biológicas de seguridad para apagar la respuesta de estrés.',
+                    steps: [
+                        'Respiración Fisiológica: 2 inhalaciones cortas por la nariz seguidas de 1 exhalación larga por la boca. Repite 5 veces.',
+                        'Escaneo de micro-tensiones: Pon una alarma cada 3 horas solo para destensar mandíbula, hombros y vientre.',
+                        'Choque térmico: Al sentir picos de ansiedad, lava tu rostro o nuca con agua muy fría por 30 segundos.'
+                    ]
+                },
+                'Mental': {
+                    title: 'Protocolo de Anclaje Cognitivo',
+                    icon: BrainCircuit,
+                    color: 'text-violet-600',
+                    bg: 'bg-violet-50',
+                    border: 'border-violet-200',
+                    desc: 'El desgaste se concentra en tu corteza prefrontal. La rumiación te roba energía vital. Debemos vaciar la caché mental.',
+                    steps: [
+                        'Descarga "Brain Dump": Si sientes parálisis, escribe en un papel absolutamente todo lo que tienes en la cabeza sin filtro por 3 min.',
+                        'Corte de Rumiación 5-4-3-2-1: Al detectar el "y si pasa lo peor", nombra en voz alta 5 cosas que veas, 4 que toques, 3 que escuches.',
+                        'Regla de los 2 minutos: Si una tarea que te abruma toma menos de 2 minutos, hazla ahora mismo. Rompe el ciclo.'
+                    ]
+                },
+                'Emocional': {
+                    title: 'Protocolo de Regulación Afectiva',
+                    icon: Heart,
+                    color: 'text-rose-600',
+                    bg: 'bg-rose-50',
+                    border: 'border-rose-200',
+                    desc: 'Tu sistema límbico está hipersensible. La irritabilidad es un mecanismo de defensa por falta de energía. Necesitas límites.',
+                    steps: [
+                        'Tiempo fuera preventivo: Si notas irritabilidad, retírate 5 minutos al baño o a solas antes de responder a un estímulo.',
+                        'Validación sin juicio: Di en voz alta "Es lógico que me sienta así, estoy operando al límite". Quita la culpa.',
+                        'Frontera digital: Apaga notificaciones 1 hora antes de dormir. Tu cerebro emocional necesita desconexión de alertas externas.'
+                    ]
+                },
+                'Mixto': {
+                    title: 'Protocolo Sistémico de Supervivencia',
+                    icon: ListChecks,
+                    color: 'text-emerald-600',
+                    bg: 'bg-emerald-50',
+                    border: 'border-emerald-200',
+                    desc: 'Presentas desgaste en múltiples frentes (o crónico). Tu sistema nervioso completo requiere regulación profunda.',
+                    steps: [
+                        'Ayuno de Dopamina Matutino: 0 pantallas durante la primera hora al despertar. Protege tu sistema antes de que inicie el día.',
+                        'Estimulación del Nervio Vago: Canta, tararea o haz gárgaras con agua por 1 minuto al día. Calma el eje intestino-cerebro.',
+                        'Pausa Radical: Tienes que agendar el descanso de la misma forma que agendas reuniones. 15 minutos al día de "no hacer nada" absoluto.'
+                    ]
+                }
+            };
+
+            // Componentes de UI Internos
+            const Step1 = () => (
+                <div className="animate-fade-in">
+                    <div className="text-center mb-8">
+                        <div className="inline-flex items-center justify-center p-3 bg-indigo-50 text-indigo-600 rounded-full mb-4">
+                            <Activity className="w-6 h-6" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-slate-900 mb-2">
+                            Auditoría de Sobrecarga Oculta
+                        </h2>
+                        <p className="text-slate-600 max-w-lg mx-auto">
+                            Selecciona los síntomas que has experimentado en los últimos 30 días. Sé honesto, esto es solo para ti.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
+                        {SYMPTOMS.map((symptom) => {
+                            const isSelected = selectedIds.includes(symptom.id);
+                            return (
+                                <button
+                                    key={symptom.id}
+                                    onClick={() => toggleSymptom(symptom.id)}
+                                    className={cn(
+                                        "flex items-center p-4 rounded-xl border-2 text-left transition-all duration-300 hover:scale-[1.01] active:scale-95",
+                                        isSelected 
+                                            ? "border-indigo-600 bg-indigo-50 shadow-sm" 
+                                            : "border-slate-200 bg-white hover:border-indigo-200 hover:bg-slate-50"
+                                    )}
+                                >
+                                    <div className={cn(
+                                        "flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center mr-3 transition-colors",
+                                        isSelected ? "border-indigo-600 bg-indigo-600" : "border-slate-300"
+                                    )}>
+                                        {isSelected && <CheckCircle2 className="w-4 h-4 text-white" />}
+                                    </div>
+                                    <div>
+                                        <p className={cn(
+                                            "font-medium",
+                                            isSelected ? "text-indigo-900" : "text-slate-700"
+                                        )}>
+                                            {symptom.label}
+                                        </p>
+                                        <p className="text-xs text-slate-400 mt-0.5">{symptom.category}</p>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div className="flex justify-center">
+                        <button
+                            onClick={() => setStep(2)}
+                            disabled={selectedIds.length === 0}
+                            className="flex items-center px-8 py-4 bg-slate-900 text-white rounded-xl font-semibold shadow-lg hover:bg-indigo-600 hover:shadow-indigo-500/30 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group"
+                        >
+                            Proyectar mi Futuro
+                            <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+                        </button>
+                    </div>
+                    {selectedIds.length === 0 && (
+                        <p className="text-center text-sm text-slate-400 mt-3">
+                            Selecciona al menos un síntoma para continuar.
+                        </p>
+                    )}
+                </div>
+            );
+
+            const Step2 = () => {
+                // Determinar el mensaje basado en el riesgo
+                let riskMessage = "";
+                let RiskIcon = Activity;
+                let riskColor = "text-emerald-500";
+                
+                if (currentRisk >= 60) {
+                    riskMessage = "Alerta: Tu sistema nervioso está en Modo Supervivencia crónico.";
+                    RiskIcon = ShieldAlert;
+                    riskColor = "text-rose-500";
+                } else if (currentRisk >= 30) {
+                    riskMessage = "Precaución: Estás acumulando tensión. Tu cuerpo te está avisando.";
+                    RiskIcon = AlertTriangle;
+                    riskColor = "text-amber-500";
+                } else {
+                    riskMessage = "Leve: Hay señales de estrés, es el mejor momento para actuar.";
+                    RiskIcon = Zap;
+                    riskColor = "text-indigo-500";
+                }
+
+                return (
+                    <div className="animate-slide-up">
+                        <button 
+                            onClick={() => setStep(1)}
+                            className="flex items-center text-sm text-slate-500 hover:text-slate-800 mb-6 transition-colors"
+                        >
+                            <RotateCcw className="w-4 h-4 mr-1" />
+                            Ajustar síntomas
+                        </button>
+
+                        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm mb-6">
+                            <div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4">
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                        Nivel de Desgaste Actual
+                                    </h3>
+                                    <div className="flex items-center">
+                                        <span className="text-4xl font-extrabold text-slate-900">{currentRisk}%</span>
+                                        <div className={cn("ml-3 flex items-center text-sm font-medium px-2.5 py-1 rounded-full bg-slate-50", riskColor)}>
+                                            <RiskIcon className="w-4 h-4 mr-1.5" />
+                                            {currentRisk >= 60 ? 'Alto Riesgo' : currentRisk >= 30 ? 'Riesgo Moderado' : 'Riesgo Leve'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="text-sm text-slate-600 max-w-xs">
+                                    {riskMessage}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm mb-8">
+                            <h3 className="text-lg font-bold text-slate-900 mb-1">
+                                Proyección a 5 Años
+                            </h3>
+                            <p className="text-sm text-slate-500 mb-6">
+                                El efecto compuesto de la ansiedad en tu cuerpo, mente y oportunidades.
+                            </p>
+                            
+                            <div className="h-64 w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="colorIgnorar" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3}/>
+                                                <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                                            </linearGradient>
+                                            <linearGradient id="colorActuar" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                                                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                        <XAxis dataKey="name" tick={{fill: '#64748b', fontSize: 12}} axisLine={false} tickLine={false} />
+                                        <YAxis tick={{fill: '#64748b', fontSize: 12}} axisLine={false} tickLine={false} domain={[0, 100]} />
+                                        <Tooltip 
+                                            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                            formatter={(value, name) => [`${value.toFixed(0)}% Riesgo`, name === 'ignorar' ? 'Si lo ignoras' : 'Si tomas acción']}
+                                        />
+                                        <Legend iconType="circle" wrapperStyle={{ fontSize: '14px', paddingTop: '10px' }} />
+                                        <Area 
+                                            type="monotone" 
+                                            dataKey="ignorar" 
+                                            name="Ignorar y Normalizar" 
+                                            stroke="#f43f5e" 
+                                            strokeWidth={3}
+                                            fillOpacity={1} 
+                                            fill="url(#colorIgnorar)" 
+                                        />
+                                        <Area 
+                                            type="monotone" 
+                                            dataKey="actuar" 
+                                            name="Tomar Acción Hoy" 
+                                            stroke="#10b981" 
+                                            strokeWidth={3}
+                                            fillOpacity={1} 
+                                            fill="url(#colorActuar)" 
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {}
+                        {dominantCategory !== 'Ninguno' && (
+                            <div className={`rounded-2xl p-6 border shadow-sm mb-8 animate-slide-up ${RECOVERY_PLANS[dominantCategory].bg} ${RECOVERY_PLANS[dominantCategory].border}`}>
+                                <div className="flex items-center mb-4">
+                                    <div className={`p-2 bg-white rounded-lg shadow-sm mr-3 ${RECOVERY_PLANS[dominantCategory].color}`}>
+                                        {React.createElement(RECOVERY_PLANS[dominantCategory].icon, { className: "w-6 h-6" })}
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-0.5">Tu Plan de Emergencia Inmediato</h3>
+                                        <h4 className={`text-xl font-bold ${RECOVERY_PLANS[dominantCategory].color}`}>
+                                            {RECOVERY_PLANS[dominantCategory].title}
+                                        </h4>
+                                    </div>
+                                </div>
+                                
+                                <p className="text-slate-700 mb-5 text-sm leading-relaxed">
+                                    {RECOVERY_PLANS[dominantCategory].desc}
+                                </p>
+                                
+                                <ul className="space-y-3">
+                                    {RECOVERY_PLANS[dominantCategory].steps.map((step, idx) => (
+                                        <li key={idx} className="flex items-start bg-white/60 p-3 rounded-xl border border-white/80">
+                                            <CheckCircle2 className={`w-5 h-5 mr-3 flex-shrink-0 mt-0.5 ${RECOVERY_PLANS[dominantCategory].color}`} />
+                                            <span className="text-sm text-slate-800 font-medium">{step}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            if (!isLoaded) return null;
+
+            return (
+                <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 p-4 sm:p-8 font-sans">
+                    {step === 1 ? <Step1 /> : <Step2 />}
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
